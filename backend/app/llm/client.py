@@ -5,14 +5,25 @@ import time
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
+import httpx
 import litellm
 from litellm import completion
 from litellm.caching.caching import Cache
 from litellm.exceptions import (
     APIConnectionError,
     APIError,
+    AuthenticationError,
+    BadGatewayError,
+    BadRequestError,
+    BudgetExceededError,
+    ContentPolicyViolationError,
+    InternalServerError,
+    NotFoundError,
+    PermissionDeniedError,
     RateLimitError,
     ServiceUnavailableError,
+    Timeout,
+    UnprocessableEntityError,
 )
 
 from app.config import Settings
@@ -21,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 # Suppress verbose LiteLLM logging
 litellm.suppress_debug_info = True
+litellm.telemetry = False
 logging.getLogger("LiteLLM").setLevel(logging.WARNING)
 
 
@@ -117,23 +129,44 @@ class LLMClient:
         return None
 
     def _is_retryable_error(self, error: Exception) -> bool:
-        """Determine if an error should trigger key failover."""
-        if isinstance(error, RateLimitError):
+        """Determine if an error should trigger key failover.
+
+        Retry on rate limits (429), quota exhaustion, retryable 5xx errors
+        (500, 502, 503, 504), connection failures, and timeouts.
+        Do NOT retry on non-retryable 4xx client errors like BadRequestError (400),
+        AuthenticationError (401), PermissionDeniedError (403), or UnprocessableEntity (422).
+        """
+        # Explicit non-retryable classes
+        if isinstance(error, (BadRequestError, AuthenticationError, PermissionDeniedError,
+                              NotFoundError, UnprocessableEntityError, ContentPolicyViolationError)):
+            return False
+
+        # Explicit retryable classes
+        if isinstance(error, (RateLimitError, ServiceUnavailableError, InternalServerError,
+                              BadGatewayError, BudgetExceededError,
+                              APIConnectionError, Timeout, TimeoutError)):
             return True
-        if isinstance(error, ServiceUnavailableError):
+
+        if isinstance(error, (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError)):
             return True
-        if isinstance(error, APIConnectionError):
-            return True
-        if isinstance(error, APIError):
-            status = getattr(error, "status_code", None)
-            if status in (429, 500, 502, 503):
-                return True
-            msg = str(error).lower()
-            if any(term in msg for term in ("quota", "rate limit", "exceeded", "resource exhausted")):
-                return True
+
+        # Status code checking
         status = getattr(error, "status_code", None)
-        if status in (429, 500, 502, 503):
+        if status is not None:
+            if status in (429, 500, 502, 503, 504):
+                return True
+            if status in (400, 401, 403, 404, 422):
+                return False
+
+        # Inspect error message text for quota or network indicators
+        msg = str(error).lower()
+        if any(term in msg for term in (
+            "quota", "rate limit", "ratelimit", "resource exhausted",
+            "overloaded", "temporarily unavailable", "timed out", "timeout",
+            "connection refused", "connection reset"
+        )):
             return True
+
         return False
 
     def _build_cache_kwargs(self, messages: List[dict]) -> dict:
@@ -177,12 +210,47 @@ class LLMClient:
             messages=messages,
             api_key=api_key,
             timeout=self._timeout,
-            caching=False,  # We handle cache manually for more control
+            caching=False,  # We handle cache manually for exact control
         )
         return response
 
-    def _extract_response_data(self, response: object) -> Tuple[str, str, int, int]:
-        """Extract reply text, model, and token counts from a response (object or dict)."""
+    def _estimate_tokens(
+        self,
+        model: str,
+        messages: Optional[List[dict]] = None,
+        text: Optional[str] = None,
+    ) -> int:
+        """Reliably estimate tokens using LiteLLM tokenizer with character fallback."""
+        if messages:
+            try:
+                cnt = litellm.token_counter(model=model, messages=messages)
+                if isinstance(cnt, int) and cnt > 0:
+                    return cnt
+            except Exception:
+                pass
+            # Fallback estimation: ~4 chars per token
+            total_chars = sum(len(str(m.get("content", ""))) for m in messages)
+            return max(1, total_chars // 4)
+
+        if text:
+            try:
+                cnt = litellm.token_counter(model=model, text=text)
+                if isinstance(cnt, int) and cnt > 0:
+                    return cnt
+            except Exception:
+                pass
+            return max(1, len(text) // 4)
+
+        return 0
+
+    def _extract_response_data(
+        self, response: object, messages: Optional[List[dict]] = None
+    ) -> Tuple[str, str, int, int]:
+        """Extract reply text, model, and token counts from a response (object or dict).
+
+        Uses provider-reported token usage when present; otherwise falls back to
+        LiteLLM token estimation so no misleading zero values are returned.
+        """
         if isinstance(response, dict):
             reply_text = ""
             choices = response.get("choices") or []
@@ -229,7 +297,17 @@ class LLMClient:
         except (TypeError, ValueError):
             output_tokens = 0
 
-        return str(reply_text or ""), str(model or self._model), input_tokens, output_tokens
+        model_str = str(model or self._model)
+        reply_str = str(reply_text or "")
+
+        # Fall back to token estimation if usage is missing or zero
+        if input_tokens <= 0 and messages:
+            input_tokens = self._estimate_tokens(model=model_str, messages=messages)
+
+        if output_tokens <= 0 and reply_str:
+            output_tokens = self._estimate_tokens(model=model_str, text=reply_str)
+
+        return reply_str, model_str, max(1, input_tokens), max(1, output_tokens)
 
     def infer(
         self,
@@ -246,7 +324,8 @@ class LLMClient:
             InferenceResult with reply and metadata.
 
         Raises:
-            AllProvidersUnavailable: When all keys have failed.
+            AllProvidersUnavailable: When all keys have failed with retryable errors.
+            Exception: When a non-retryable error occurs.
         """
         start_time = time.monotonic()
         is_simulating = bool(simulation)
@@ -256,7 +335,9 @@ class LLMClient:
             cached_result = self._try_cache_lookup(messages)
             if cached_result is not None:
                 latency_ms = int((time.monotonic() - start_time) * 1000)
-                reply_text, model, input_tokens, output_tokens = self._extract_response_data(cached_result)
+                reply_text, model, input_tokens, output_tokens = self._extract_response_data(
+                    cached_result, messages=messages
+                )
 
                 return InferenceResult(
                     reply=reply_text,
@@ -294,7 +375,9 @@ class LLMClient:
                 response = self._attempt_completion(messages, api_key)
                 latency_ms = int((time.monotonic() - start_time) * 1000)
 
-                reply_text, model, input_tokens, output_tokens = self._extract_response_data(response)
+                reply_text, model, input_tokens, output_tokens = self._extract_response_data(
+                    response, messages=messages
+                )
 
                 # Store in cache (skip if simulating)
                 if not is_simulating:
@@ -312,8 +395,17 @@ class LLMClient:
                 )
 
             except Exception as e:
-                logger.warning(f"Key {key_id} failed: {type(e).__name__}")
                 last_error = e
+                # Check retryability
+                if not self._is_retryable_error(e):
+                    logger.warning(
+                        f"Non-retryable error on key {key_id}: {type(e).__name__} ({e}). Aborting key failover."
+                    )
+                    raise e
+
+                logger.warning(
+                    f"Retryable error on key {key_id}: {type(e).__name__}. Failing over to next key."
+                )
                 fallback_attempts += 1
                 continue
 

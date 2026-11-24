@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useMemo } from "react";
 import {
   Activity,
   AlertCircle,
@@ -9,6 +9,12 @@ import {
   Server,
   Sparkles,
 } from "lucide-react";
+import {
+  AssistantRuntimeProvider,
+  ThreadPrimitive,
+  useLocalRuntime,
+  type ChatModelAdapter,
+} from "@assistant-ui/react";
 import { Sidebar } from "./components/Sidebar";
 import { MessageItem } from "./components/MessageItem";
 import { ChatComposer } from "./components/ChatComposer";
@@ -20,14 +26,21 @@ import {
   HealthResponse,
   MessageMetadata,
 } from "./types";
-import { fetchHealth, sendChatMessage } from "./api/client";
+import { fetchHealth, fetchSessionHistory, sendChatMessage } from "./api/client";
 import { generateSessionId } from "./lib/utils";
+import {
+  getActiveSessionId,
+  getSavedSessions,
+  removeSavedSession,
+  setActiveSessionId,
+} from "./lib/sessionStorage";
 
 const DEFAULT_SYSTEM_PROMPT = "You are a helpful AI assistant.";
 
 export const App: React.FC = () => {
-  // Session state: fresh ID generated on page load
-  const [sessionId, setSessionId] = useState<string>(() => generateSessionId());
+  // Session persistence: restore active session ID from localStorage on page refresh
+  const [sessionId, setSessionId] = useState<string>(() => getActiveSessionId());
+  const [savedSessions, setSavedSessions] = useState<string[]>(() => getSavedSessions());
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
@@ -84,13 +97,72 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  // New session button handler
+  // Restore conversation history for the active session on page refresh or session switch
+  useEffect(() => {
+    let isMounted = true;
+    const restoreSession = async () => {
+      try {
+        const historyData = await fetchSessionHistory(sessionId);
+        if (isMounted && historyData && Array.isArray(historyData.messages)) {
+          const loaded: ChatMessage[] = historyData.messages.map((m, idx) => ({
+            id: `restored-${sessionId}-${idx}`,
+            role: m.role as "user" | "assistant",
+            content: m.content,
+            metadata: m.metadata as MessageMetadata | undefined,
+            createdAt: new Date().toISOString(),
+          }));
+          setMessages(loaded);
+
+          // Update latest metadata to the last assistant message
+          const lastAsst = [...loaded].reverse().find(
+            (m) => m.role === "assistant" && m.metadata
+          );
+          if (lastAsst?.metadata) {
+            setLatestMetadata(lastAsst.metadata);
+          }
+        }
+      } catch (err) {
+        // Unknown session (404) or network issue -> start with empty messages
+        if (isMounted) {
+          setMessages([]);
+          setLatestMetadata(null);
+        }
+      }
+    };
+
+    restoreSession();
+    return () => {
+      isMounted = false;
+    };
+  }, [sessionId]);
+
+  // Create a new session
   const handleNewSession = () => {
     const newId = generateSessionId();
+    setActiveSessionId(newId);
     setSessionId(newId);
+    setSavedSessions(getSavedSessions());
     setMessages([]);
     setLatestMetadata(null);
     setErrorBanner(null);
+  };
+
+  // Switch to a previously saved session
+  const handleSelectSession = (targetId: string) => {
+    if (targetId === sessionId) return;
+    setActiveSessionId(targetId);
+    setSessionId(targetId);
+    setSavedSessions(getSavedSessions());
+    setErrorBanner(null);
+  };
+
+  // Delete a saved session from the local list
+  const handleDeleteSession = (targetId: string) => {
+    const remaining = removeSavedSession(targetId);
+    setSavedSessions(remaining);
+    if (targetId === sessionId) {
+      handleNewSession();
+    }
   };
 
   // Send message
@@ -153,130 +225,149 @@ export const App: React.FC = () => {
     }
   };
 
+  // Initialize assistant-ui LocalRuntime with a custom ChatModelAdapter
+  const chatModelAdapter: ChatModelAdapter = useMemo(
+    () => ({
+      async run() {
+        return {
+          content: [{ type: "text", text: "" }],
+        };
+      },
+    }),
+    []
+  );
+
+  const runtime = useLocalRuntime(chatModelAdapter);
+
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#070b14] text-slate-100 font-sans">
-      {/* Zone A: Left Sidebar */}
-      <Sidebar
-        sessionId={sessionId}
-        onNewSession={handleNewSession}
-        health={health}
-        healthLoading={healthLoading}
-        onOpenSystemPrompt={() => setIsSystemPromptOpen(true)}
-        systemPrompt={systemPrompt}
-        onToggleResilienceLab={() => setIsResilienceLabOpen((prev) => !prev)}
-        isResilienceLabOpen={isResilienceLabOpen}
-        activeSimulation={activeSimulation}
-      />
+    <AssistantRuntimeProvider runtime={runtime}>
+      <div className="flex h-screen w-screen overflow-hidden bg-[#070b14] text-slate-100 font-sans">
+        {/* Zone A: Left Sidebar with usable session navigation */}
+        <Sidebar
+          sessionId={sessionId}
+          savedSessions={savedSessions}
+          onNewSession={handleNewSession}
+          onSelectSession={handleSelectSession}
+          onDeleteSession={handleDeleteSession}
+          health={health}
+          healthLoading={healthLoading}
+          onOpenSystemPrompt={() => setIsSystemPromptOpen(true)}
+          systemPrompt={systemPrompt}
+          onToggleResilienceLab={() => setIsResilienceLabOpen((prev) => !prev)}
+          isResilienceLabOpen={isResilienceLabOpen}
+          activeSimulation={activeSimulation}
+        />
 
-      {/* Zone B: Main Conversation Area */}
-      <main className="flex-1 flex flex-col h-full bg-[#070b14] relative overflow-hidden">
-        {/* Active Simulation Warning Banner */}
-        {activeSimulation && (
-          <div className="px-4 py-2 bg-amber-500/15 border-b border-amber-500/30 text-amber-300 text-xs font-mono flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
-              <span>
-                Resilience Lab Active: Next request sends{" "}
-                <code className="font-bold underline">X-Simulate-Failure: {activeSimulation}</code>
-              </span>
-            </div>
-            <button
-              onClick={() => setActiveSimulation(null)}
-              className="text-xs text-amber-200 hover:text-white px-2 py-0.5 rounded bg-amber-500/20"
-            >
-              Cancel
-            </button>
-          </div>
-        )}
-
-        {/* Conversation Header */}
-        <div className="px-6 py-3 border-b border-[#1f2d47] bg-[#0b1120]/70 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <span className="font-mono text-xs text-slate-400">Session:</span>
-            <span className="font-mono text-xs font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-              {sessionId}
-            </span>
-          </div>
-          <div className="flex items-center gap-2 text-xs font-mono text-slate-400">
-            <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-            <span>SQLite Active</span>
-          </div>
-        </div>
-
-        {/* Message Feed */}
-        <div className="flex-1 overflow-y-auto p-6 flex flex-col">
-          {messages.length === 0 ? (
-            <div className="flex-1 flex flex-col items-center justify-center max-w-xl mx-auto text-center my-auto p-4 select-none">
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center shadow-xl shadow-emerald-500/10 border border-emerald-400/30 mb-4">
-                <Cpu className="w-7 h-7 text-white" />
+        {/* Zone B: Main Conversation Area with assistant-ui ThreadPrimitive */}
+        <ThreadPrimitive.Root className="flex-1 flex flex-col h-full bg-[#070b14] relative overflow-hidden">
+          {/* Active Simulation Warning Banner */}
+          {activeSimulation && (
+            <div className="px-4 py-2 bg-amber-500/15 border-b border-amber-500/30 text-amber-300 text-xs font-mono flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+                <span>
+                  Resilience Lab Active: Next request sends{" "}
+                  <code className="font-bold underline">X-Simulate-Failure: {activeSimulation}</code>
+                </span>
               </div>
-              <h1 className="text-2xl font-bold tracking-tight text-white mb-2">
-                Inference Control Center
-              </h1>
-              <p className="text-sm text-slate-400 leading-relaxed mb-6">
-                Production AI inference workspace with automatic multi-key failover, LiteLLM response caching, and persistent SQLite session state.
-              </p>
-            </div>
-          ) : (
-            <div className="max-w-3xl w-full mx-auto flex flex-col">
-              {messages.map((msg) => (
-                <MessageItem key={msg.id} message={msg} />
-              ))}
-
-              {/* In-flight loading indicator */}
-              {isLoading && (
-                <div className="flex justify-start mb-6">
-                  <div className="bg-[#0f172a]/70 border border-[#1f2d47] rounded-2xl px-5 py-4 flex items-center gap-3 shadow-md">
-                    <Loader2 className="w-4 h-4 text-emerald-400 animate-spin" />
-                    <span className="text-xs font-mono text-slate-400">
-                      Processing inference across provider key pool...
-                    </span>
-                  </div>
-                </div>
-              )}
-              <div ref={messagesEndRef} />
+              <button
+                onClick={() => setActiveSimulation(null)}
+                className="text-xs text-amber-200 hover:text-white px-2 py-0.5 rounded bg-amber-500/20"
+              >
+                Cancel
+              </button>
             </div>
           )}
-        </div>
 
-        {/* Message Composer */}
-        <div className="max-w-3xl w-full mx-auto">
-          <ChatComposer
-            onSendMessage={handleSendMessage}
-            isLoading={isLoading}
-            onSelectPrompt={(prompt) => handleSendMessage(prompt)}
-            showSuggestions={messages.length === 0}
-          />
-        </div>
-      </main>
+          {/* Conversation Header */}
+          <div className="px-6 py-3 border-b border-[#1f2d47] bg-[#0b1120]/70 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <span className="font-mono text-xs text-slate-400">Session:</span>
+              <span className="font-mono text-xs font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                {sessionId}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 text-xs font-mono text-slate-400">
+              <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+              <span>SQLite Active</span>
+            </div>
+          </div>
 
-      {/* Zone C: Right Technical Inspector */}
-      <InferenceInspector
-        health={health}
-        healthLoading={healthLoading}
-        latestMetadata={latestMetadata}
-        sessionId={sessionId}
-        totalMessages={messages.length}
-      />
+          {/* Message Feed with assistant-ui ThreadPrimitive.Viewport */}
+          <ThreadPrimitive.Viewport className="flex-1 overflow-y-auto p-6 flex flex-col">
+            {messages.length === 0 ? (
+              <div className="flex-1 flex flex-col items-center justify-center max-w-xl mx-auto text-center my-auto p-4 select-none">
+                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center shadow-xl shadow-emerald-500/10 border border-emerald-400/30 mb-4">
+                  <Cpu className="w-7 h-7 text-white" />
+                </div>
+                <h1 className="text-2xl font-bold tracking-tight text-white mb-2">
+                  Inference Control Center
+                </h1>
+                <p className="text-sm text-slate-400 leading-relaxed mb-6">
+                  Production AI inference workspace with automatic multi-key failover, LiteLLM response caching, and persistent SQLite session state.
+                </p>
+              </div>
+            ) : (
+              <div className="max-w-3xl w-full mx-auto flex flex-col">
+                {messages.map((msg) => (
+                  <MessageItem key={msg.id} message={msg} />
+                ))}
 
-      {/* Modals */}
-      <SystemPromptModal
-        isOpen={isSystemPromptOpen}
-        onClose={() => setIsSystemPromptOpen(false)}
-        systemPrompt={systemPrompt}
-        onSavePrompt={(p) => setSystemPrompt(p)}
-      />
+                {/* In-flight loading indicator */}
+                {isLoading && (
+                  <div className="flex justify-start mb-6">
+                    <div className="bg-[#0f172a]/70 border border-[#1f2d47] rounded-2xl px-5 py-4 flex items-center gap-3 shadow-md">
+                      <Loader2 className="w-4 h-4 text-emerald-400 animate-spin" />
+                      <span className="text-xs font-mono text-slate-400">
+                        Processing inference across provider key pool...
+                      </span>
+                    </div>
+                  </div>
+                )}
+                <div ref={messagesEndRef} />
+              </div>
+            )}
+          </ThreadPrimitive.Viewport>
 
-      <ResilienceLab
-        isOpen={isResilienceLabOpen}
-        onClose={() => setIsResilienceLabOpen(false)}
-        activeSimulation={activeSimulation}
-        onSelectSimulation={(header) => {
-          setActiveSimulation(header);
-          if (header) setIsResilienceLabOpen(false);
-        }}
-      />
-    </div>
+          {/* Message Composer with assistant-ui ComposerPrimitive */}
+          <div className="max-w-3xl w-full mx-auto">
+            <ChatComposer
+              onSendMessage={handleSendMessage}
+              isLoading={isLoading}
+              onSelectPrompt={(prompt) => handleSendMessage(prompt)}
+              showSuggestions={messages.length === 0}
+            />
+          </div>
+        </ThreadPrimitive.Root>
+
+        {/* Zone C: Right Technical Inspector */}
+        <InferenceInspector
+          health={health}
+          healthLoading={healthLoading}
+          latestMetadata={latestMetadata}
+          sessionId={sessionId}
+          totalMessages={messages.length}
+        />
+
+        {/* Modals */}
+        <SystemPromptModal
+          isOpen={isSystemPromptOpen}
+          onClose={() => setIsSystemPromptOpen(false)}
+          systemPrompt={systemPrompt}
+          onSavePrompt={(p) => setSystemPrompt(p)}
+        />
+
+        <ResilienceLab
+          isOpen={isResilienceLabOpen}
+          onClose={() => setIsResilienceLabOpen(false)}
+          activeSimulation={activeSimulation}
+          onSelectSimulation={(header) => {
+            setActiveSimulation(header);
+            if (header) setIsResilienceLabOpen(false);
+          }}
+        />
+      </div>
+    </AssistantRuntimeProvider>
   );
 };
 

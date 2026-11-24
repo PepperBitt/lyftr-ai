@@ -2,19 +2,24 @@ import React from "react";
 import {
   Activity,
   Check,
+  Clock,
   Copy,
   Cpu,
   Database,
+  MessageSquare,
   Plus,
   Settings2,
   ShieldAlert,
-  Terminal,
+  Trash2,
 } from "lucide-react";
 import { HealthResponse } from "../types";
 
 interface SidebarProps {
   sessionId: string;
+  savedSessions: string[];
   onNewSession: () => void;
+  onSelectSession: (id: string) => void;
+  onDeleteSession: (id: string) => void;
   health: HealthResponse | null;
   healthLoading: boolean;
   onOpenSystemPrompt: () => void;
@@ -26,7 +31,10 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({
   sessionId,
+  savedSessions,
   onNewSession,
+  onSelectSession,
+  onDeleteSession,
   health,
   healthLoading,
   onOpenSystemPrompt,
@@ -75,8 +83,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
-      {/* Session Controls */}
-      <div className="p-4 flex flex-col gap-3">
+      {/* Primary Actions: New Session */}
+      <div className="p-4 flex flex-col gap-3 border-b border-[#1f2d47]/70">
         <button
           onClick={onNewSession}
           className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-sm transition-all shadow-md shadow-emerald-900/30 active:scale-[0.98]"
@@ -85,17 +93,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <span>New Session</span>
         </button>
 
-        {/* Current Session Info */}
+        {/* Current Active Session Card */}
         <div className="p-3 rounded-lg bg-[#111827] border border-[#1f2d47] flex flex-col gap-1.5">
           <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center justify-between">
-            <span>Active Session</span>
-            <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400">
+            <span>Current Session</span>
+            <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400 font-semibold">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-              Live
+              Active
             </span>
           </div>
           <div className="flex items-center justify-between">
-            <span data-testid="session-id-display" className="font-mono text-xs text-slate-200 font-medium">
+            <span
+              data-testid="session-id-display"
+              className="font-mono text-xs text-slate-200 font-medium"
+            >
               {sessionId}
             </span>
             <button
@@ -113,49 +124,108 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
-      {/* Navigation & Controls */}
-      <div className="flex-1 px-4 py-2 flex flex-col gap-1 overflow-y-auto">
-        <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider px-2 py-1">
-          Control Panel
+      {/* Navigation: Saved Sessions History & Controls */}
+      <div className="flex-1 px-4 py-3 flex flex-col gap-4 overflow-y-auto">
+        {/* Usable Session Navigation List */}
+        <div className="flex flex-col gap-1.5">
+          <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider px-2 flex items-center justify-between">
+            <span>Sessions History</span>
+            <span className="text-[10px] font-mono text-slate-500">{savedSessions.length}</span>
+          </div>
+
+          <div className="flex flex-col gap-1 max-h-48 overflow-y-auto pr-1">
+            {savedSessions.length === 0 ? (
+              <div className="text-xs text-slate-600 italic px-2 py-1">
+                No saved sessions yet.
+              </div>
+            ) : (
+              savedSessions.map((id) => {
+                const isActive = id === sessionId;
+                return (
+                  <div
+                    key={id}
+                    data-testid={`session-item-${id}`}
+                    className={`group flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-mono transition-all ${
+                      isActive
+                        ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-semibold"
+                        : "hover:bg-[#161f33] text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    <button
+                      onClick={() => onSelectSession(id)}
+                      className="flex-1 text-left flex items-center gap-2 truncate"
+                      title={`Switch to session ${id}`}
+                    >
+                      <MessageSquare className="w-3 h-3 flex-shrink-0" />
+                      <span className="truncate">{id}</span>
+                      {isActive && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" />
+                      )}
+                    </button>
+
+                    {!isActive && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteSession(id);
+                        }}
+                        title="Remove from history list"
+                        className="opacity-0 group-hover:opacity-100 p-1 text-slate-500 hover:text-rose-400 transition-opacity"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
         </div>
 
-        {/* System Prompt Settings */}
-        <button
-          onClick={onOpenSystemPrompt}
-          className="w-full flex items-center justify-between px-3 py-2 rounded-md hover:bg-[#161f33] text-sm text-slate-300 transition-colors"
-        >
-          <div className="flex items-center gap-2.5">
-            <Settings2 className="w-4 h-4 text-slate-400" />
-            <span>System Prompt</span>
+        {/* Control Panel Items */}
+        <div className="flex flex-col gap-1 pt-2 border-t border-[#1f2d47]/50">
+          <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider px-2 py-1">
+            Control Panel
           </div>
-          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">
-            {systemPrompt.length > 20 ? "Custom" : "Default"}
-          </span>
-        </button>
 
-        {/* Resilience Lab Toggle */}
-        <button
-          onClick={onToggleResilienceLab}
-          className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-sm transition-colors ${
-            isResilienceLabOpen || activeSimulation
-              ? "bg-amber-500/10 text-amber-300 border border-amber-500/20"
-              : "hover:bg-[#161f33] text-slate-300"
-          }`}
-        >
-          <div className="flex items-center gap-2.5">
-            <ShieldAlert className="w-4 h-4 text-amber-400" />
-            <span>Resilience Lab</span>
-          </div>
-          {activeSimulation ? (
-            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold animate-pulse">
-              ARMED
-            </span>
-          ) : (
+          {/* System Prompt Settings */}
+          <button
+            onClick={onOpenSystemPrompt}
+            className="w-full flex items-center justify-between px-3 py-2 rounded-md hover:bg-[#161f33] text-sm text-slate-300 transition-colors"
+          >
+            <div className="flex items-center gap-2.5">
+              <Settings2 className="w-4 h-4 text-slate-400" />
+              <span>System Prompt</span>
+            </div>
             <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">
-              Test
+              {systemPrompt.length > 20 ? "Custom" : "Default"}
             </span>
-          )}
-        </button>
+          </button>
+
+          {/* Resilience Lab Toggle */}
+          <button
+            onClick={onToggleResilienceLab}
+            className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-sm transition-colors ${
+              isResilienceLabOpen || activeSimulation
+                ? "bg-amber-500/10 text-amber-300 border border-amber-500/20"
+                : "hover:bg-[#161f33] text-slate-300"
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              <ShieldAlert className="w-4 h-4 text-amber-400" />
+              <span>Resilience Lab</span>
+            </div>
+            {activeSimulation ? (
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold animate-pulse">
+                ARMED
+              </span>
+            ) : (
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">
+                Test
+              </span>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Persistence & Gateway Health Footer */}

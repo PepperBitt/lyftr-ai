@@ -6,9 +6,9 @@ Complete guide to running automated and manual verification tests for LYFTR AI.
 
 ## Test Execution Summary
 
-The repository contains **62 automated tests**:
-- **Backend**: 51 pytest unit & integration tests covering health, validation, multi-turn history, key failover, caching, SQLite transactions, and error safety.
-- **Frontend**: 11 vitest application flow tests verifying component rendering, data-testid attributes, user interactions, loading states, error boundaries, and failover header generation.
+The repository contains **68 automated tests**:
+- **Backend**: 55 pytest unit & integration tests covering health, validation, multi-turn history, key failover, retryable vs non-retryable error classification, token usage estimation, caching, SQLite transactions, and error safety.
+- **Frontend**: 13 vitest application flow tests verifying component rendering, data-testid attributes, session navigation, refresh restoration, user interactions, loading states, error boundaries, and failover header generation.
 
 ---
 
@@ -48,11 +48,11 @@ npm test
 | **Health** | `tests/test_health.py` | 5 | HTTP 200, keys count match, cache enabled, no key secrets exposed |
 | **Validation** | `tests/test_validation.py` | 9 | Missing/empty/whitespace session_id & message (422), 4000 char boundary, JSON errors |
 | **Conversation** | `tests/test_conversation.py` | 9 | Oldest-first order, metadata persistence, context accumulation, session isolation, 404 on unknown |
-| **Key Failover** | `tests/test_failover.py` | 10 | Primary key 429 & 500 fallback, wildcard `*=429` 503, fallback attempts counting, no half-saved DB rows |
+| **Key Failover** | `tests/test_failover.py` | 14 | Primary key 429 & 500 fallback, wildcard `*=429` 503, fallback attempts counting, retryable vs non-retryable errors, token estimation |
 | **Response Cache** | `tests/test_caching.py` | 8 | First live, second hit `LLM_CACHE`, key_id null on hit, token counts preserved, simulation bypasses cache |
 | **SQLite DB** | `tests/test_database.py` | 6 | Automatic file & schema creation, WAL mode, transaction integrity, session prompt storage |
 | **Error Safety** | `tests/test_errors.py` | 4 | No stack traces exposed, clean JSON `detail`, docs endpoints disabled |
-| **Frontend UI** | `src/test/App.test.tsx` | 8 | Exact `data-testid` attributes, send & clear, multi-turn display, 503 error banner, Resilience Lab header |
+| **Frontend UI** | `src/test/App.test.tsx` | 10 | Exact `data-testid` attributes, send & clear, multi-turn display, 503 error banner, Resilience Lab header, session restore, session navigation |
 | **Message Item** | `src/test/MessageItem.test.tsx`| 3 | Per-response metadata badges, markdown rendering, copy button |
 
 ---

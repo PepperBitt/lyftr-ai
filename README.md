@@ -13,7 +13,7 @@ Production-grade Full-Stack LLM Inference Gateway with automatic provider key fa
 | **Public GitHub Repository** | `https://github.com/your-username/lyftr-ai` *(Replace with repo URL)* | `Verified` | Full Monorepo |
 | **Demo Video Walkthrough** | `https://youtu.be/placeholder-demo` *(2-3 min recording link)* | `Pending Recording` | Spoken demonstration |
 
-> **Note on Deployment Readiness**: The entire stack is completely pre-configured for instant zero-code public deployment on **Vercel** (frontend) and **Render / Railway** (backend with persistent `/data` volume). See [docs/DEPLOYMENT.md](file:///Users/slayer/LyftrAI/docs/DEPLOYMENT.md) for step-by-step instructions.
+> **Note on Deployment Readiness**: The entire stack is completely pre-configured for instant zero-code public deployment on **Vercel** (frontend) and **Render / Railway** (backend with persistent `/data` volume). See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for step-by-step instructions. Real API keys are not bundled in code or configuration and should be supplied in production environment variables.
 
 ---
 
@@ -95,14 +95,14 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 ---
 
 ### Running Automated Tests
-Run both backend and frontend test suites (62 tests):
+Run both backend and frontend test suites (68 tests):
 ```bash
 make test
 ```
 Or individually:
 ```bash
-make test-backend   # 51 pytest unit & integration tests
-make test-frontend  # 11 vitest application flow tests
+make test-backend   # 55 pytest unit & integration tests
+make test-frontend  # 13 vitest application flow tests
 ```
 
 ---

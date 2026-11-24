@@ -1,5 +1,6 @@
 import React from "react";
 import { ArrowUp, Loader2 } from "lucide-react";
+import { ComposerPrimitive } from "@assistant-ui/react";
 
 interface ChatComposerProps {
   onSendMessage: (message: string) => void;
@@ -57,33 +58,43 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
         </div>
       )}
 
-      {/* Composer Input Box */}
-      <div className="relative rounded-xl bg-[#0b1120] border border-[#1f2d47] focus-within:border-emerald-500/60 focus-within:ring-1 focus-within:ring-emerald-500/40 transition-all shadow-inner">
-        <textarea
-          data-testid="chat-input"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Ask a question or enter inference query (Enter to send, Shift+Enter for newline)..."
-          disabled={isLoading}
-          rows={2}
-          className="w-full bg-transparent text-slate-100 placeholder-slate-500 p-3 pr-14 text-sm focus:outline-none resize-none disabled:opacity-50"
-        />
-
-        <button
-          data-testid="send-button"
-          onClick={handleSend}
-          disabled={!input.trim() || isLoading}
-          className="absolute right-2.5 bottom-2.5 w-9 h-9 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-[#1f2d47] disabled:text-slate-600 text-white flex items-center justify-center transition-all shadow-md active:scale-95"
-          title="Send message"
+      {/* Composer Input Box powered by assistant-ui ComposerPrimitive */}
+      <ComposerPrimitive.Root asChild>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleSend();
+          }}
+          className="relative rounded-xl bg-[#0b1120] border border-[#1f2d47] focus-within:border-emerald-500/60 focus-within:ring-1 focus-within:ring-emerald-500/40 transition-all shadow-inner"
         >
-          {isLoading ? (
-            <Loader2 className="w-4 h-4 animate-spin text-emerald-200" />
-          ) : (
-            <ArrowUp className="w-4 h-4" />
-          )}
-        </button>
-      </div>
+          <ComposerPrimitive.Input asChild>
+            <textarea
+              data-testid="chat-input"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask a question or enter inference query (Enter to send, Shift+Enter for newline)..."
+              disabled={isLoading}
+              rows={2}
+              className="w-full bg-transparent text-slate-100 placeholder-slate-500 p-3 pr-14 text-sm focus:outline-none resize-none disabled:opacity-50"
+            />
+          </ComposerPrimitive.Input>
+
+          <button
+            data-testid="send-button"
+            type="submit"
+            disabled={!input.trim() || isLoading}
+            className="absolute right-2.5 bottom-2.5 w-9 h-9 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-[#1f2d47] disabled:text-slate-600 text-white flex items-center justify-center transition-all shadow-md active:scale-95"
+            title="Send message"
+          >
+            {isLoading ? (
+              <Loader2 className="w-4 h-4 animate-spin text-emerald-200" />
+            ) : (
+              <ArrowUp className="w-4 h-4" />
+            )}
+          </button>
+        </form>
+      </ComposerPrimitive.Root>
 
       <div className="flex items-center justify-between text-[11px] font-mono text-slate-500 px-1">
         <span>Non-streaming REST Gateway • Exact-match LiteLLM Cache</span>

@@ -305,4 +305,81 @@ describe("LYFTR AI Frontend — Complete Application Flow", () => {
       expect(screen.getByText(/Fallbacks: 1/i)).toBeInTheDocument();
     });
   });
+
+  it("restores active session messages from history endpoint on mount", async () => {
+    localStorage.setItem("lyftr_active_session_id", "s-restored-123");
+    (client.fetchSessionHistory as any).mockResolvedValueOnce({
+      session_id: "s-restored-123",
+      messages: [
+        { role: "user", content: "Previous question from session" },
+        {
+          role: "assistant",
+          content: "Previous answer from session",
+          metadata: {
+            resolution_source: "LIVE_INFERENCE",
+            model: "gemini/gemini-2.0-flash",
+            latency_ms: 700,
+            input_tokens: 25,
+            output_tokens: 15,
+            key_id: "key_1",
+            fallback_attempts: 0,
+          },
+        },
+      ],
+    });
+
+    render(<App />);
+
+    expect(client.fetchSessionHistory).toHaveBeenCalledWith("s-restored-123");
+
+    await waitFor(() => {
+      expect(screen.getByText("Previous question from session")).toBeInTheDocument();
+      expect(screen.getByText("Previous answer from session")).toBeInTheDocument();
+    });
+  });
+
+  it("switches between saved sessions in the sidebar navigation", async () => {
+    localStorage.setItem("lyftr_saved_sessions", JSON.stringify(["s-first", "s-second"]));
+    localStorage.setItem("lyftr_active_session_id", "s-first");
+
+    (client.fetchSessionHistory as any).mockImplementation((sId: string) => {
+      if (sId === "s-second") {
+        return Promise.resolve({
+          session_id: "s-second",
+          messages: [
+            { role: "user", content: "Message from second session" },
+            {
+              role: "assistant",
+              content: "Reply from second session",
+              metadata: {
+                resolution_source: "LIVE_INFERENCE",
+                model: "gemini/gemini-2.0-flash",
+                latency_ms: 500,
+                input_tokens: 10,
+                output_tokens: 10,
+                key_id: "key_1",
+                fallback_attempts: 0,
+              },
+            },
+          ],
+        });
+      }
+      return Promise.resolve({ session_id: sId, messages: [] });
+    });
+
+    render(<App />);
+
+    expect(screen.getByTestId("session-id-display")).toHaveTextContent("s-first");
+
+    // Click on s-second in sidebar session history list
+    const sessionSecondBtn = screen.getByText("s-second");
+    await userEvent.click(sessionSecondBtn);
+
+    expect(screen.getByTestId("session-id-display")).toHaveTextContent("s-second");
+
+    await waitFor(() => {
+      expect(screen.getByText("Message from second session")).toBeInTheDocument();
+      expect(screen.getByText("Reply from second session")).toBeInTheDocument();
+    });
+  });
 });
