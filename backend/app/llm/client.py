@@ -410,6 +410,9 @@ class LLMClient:
                 continue
 
         # All keys exhausted
+        logger.warning(
+            f"All {len(self._keys)} provider keys failed. Last error: {type(last_error).__name__}: {last_error}"
+        )
         raise AllProvidersUnavailable(
             f"All {len(self._keys)} provider keys failed. Last error: {type(last_error).__name__}"
             if last_error

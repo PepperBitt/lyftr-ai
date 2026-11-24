@@ -54,6 +54,45 @@ class TestFailover:
         data = resp.json()
         assert data["metadata"]["key_id"] == "key_2"
 
+    def test_primary_502_secondary_succeeds(self, client, mock_completion):
+        """Primary fails with 502 Bad Gateway, secondary succeeds."""
+        mock_completion.return_value = make_mock_response("From backup 502")
+        resp = client.post(
+            "/chat",
+            json={"session_id": "s-fo-502", "message": "Hello"},
+            headers={"X-Simulate-Failure": "key_1=502"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["metadata"]["key_id"] == "key_2"
+        assert data["metadata"]["fallback_attempts"] == 1
+
+    def test_primary_503_secondary_succeeds(self, client, mock_completion):
+        """Primary fails with 503 Service Unavailable, secondary succeeds."""
+        mock_completion.return_value = make_mock_response("From backup 503")
+        resp = client.post(
+            "/chat",
+            json={"session_id": "s-fo-503", "message": "Hello"},
+            headers={"X-Simulate-Failure": "key_1=503"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["metadata"]["key_id"] == "key_2"
+        assert data["metadata"]["fallback_attempts"] == 1
+
+    def test_malformed_simulation_header_is_ignored(self, client, mock_completion):
+        """Malformed or unrecognized simulation header does not crash and is ignored."""
+        mock_completion.return_value = make_mock_response("Normal reply")
+        resp = client.post(
+            "/chat",
+            json={"session_id": "s-fo-mal", "message": "Hello"},
+            headers={"X-Simulate-Failure": "invalid_key=999,not_a_pair"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["metadata"]["key_id"] == "key_1"
+        assert data["metadata"]["fallback_attempts"] == 0
+
     def test_all_keys_fail_returns_503(self, client, mock_completion):
         """All keys failing returns 503."""
         resp = client.post(
@@ -222,3 +261,32 @@ class TestFailover:
         # Must not be 0; must be estimated positive integers
         assert data["metadata"]["input_tokens"] > 0
         assert data["metadata"]["output_tokens"] > 0
+
+    def test_simulation_disabled_ignores_header(self, app, client, mock_completion):
+        """When ENABLE_FAILURE_SIMULATION is False, X-Simulate-Failure header is ignored."""
+        # Temporarily disable failure simulation on app settings
+        original_setting = app.state.settings.enable_failure_simulation
+        from app.config import Settings
+        app.state.settings = Settings(
+            llm_api_keys=app.state.settings.llm_api_keys,
+            database_url=app.state.settings.database_url,
+            enable_failure_simulation=False,
+        )
+        try:
+            mock_completion.return_value = make_mock_response("Ignored simulation")
+            resp = client.post(
+                "/chat",
+                json={"session_id": "s-sim-disabled", "message": "Hello"},
+                headers={"X-Simulate-Failure": "key_1=429"},
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            # Since simulation was disabled, key_1 succeeded without failing over
+            assert data["metadata"]["key_id"] == "key_1"
+            assert data["metadata"]["fallback_attempts"] == 0
+        finally:
+            app.state.settings = Settings(
+                llm_api_keys=app.state.settings.llm_api_keys,
+                database_url=app.state.settings.database_url,
+                enable_failure_simulation=original_setting,
+            )

@@ -35,11 +35,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Ensure directory exists for SQLite
         db_path = settings.database_url.replace("sqlite:////", "/").replace("sqlite:///", "")
         db_dir = os.path.dirname(db_path)
+        actual_db_url = settings.database_url
         if db_dir:
-            os.makedirs(db_dir, exist_ok=True)
+            try:
+                os.makedirs(db_dir, exist_ok=True)
+                # Verify directory is writable
+                probe_path = os.path.join(db_dir, ".probe_write")
+                try:
+                    with open(probe_path, "w") as f:
+                        f.write("ok")
+                    os.remove(probe_path)
+                except (PermissionError, OSError) as write_err:
+                    raise PermissionError(f"Directory '{db_dir}' exists but is not writable: {write_err}") from write_err
+            except (PermissionError, OSError) as e:
+                # Fallback for local environments where /data is not permitted or writable
+                local_dir = os.path.abspath("./data")
+                os.makedirs(local_dir, exist_ok=True)
+                actual_db_url = f"sqlite:///{os.path.join(local_dir, 'app.db')}"
+                logger.warning(
+                    f"Configured database path '{db_path}' is not writable ({e}). "
+                    f"Falling back to local path '{actual_db_url}'."
+                )
 
         # Database
-        db = Database(settings.database_url)
+        db = Database(actual_db_url)
         db.create_tables()
         logger.info("Database initialized")
 
@@ -55,6 +74,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.db = db
         app.state.llm = llm
         app.state.chat_service = chat_service
+        app.state.last_inference_verified = False
+        app.state.provider_status = "configured" if settings.key_count > 0 else "unconfigured"
 
         logger.info("LYFTR AI backend ready")
         yield

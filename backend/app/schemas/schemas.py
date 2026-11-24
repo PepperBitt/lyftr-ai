@@ -57,6 +57,10 @@ class HealthResponse(BaseModel):
     status: str
     keys_configured: int
     cache_enabled: bool
+    provider: Optional[str] = "gemini"
+    model: Optional[str] = None
+    provider_status: Optional[str] = "configured"
+    last_inference_verified: Optional[bool] = False
 
 
 class MessageItem(BaseModel):

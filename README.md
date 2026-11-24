@@ -95,15 +95,22 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 ---
 
 ### Running Automated Tests
-Run both backend and frontend test suites (72 tests):
+Run both backend and frontend test suites (78 tests):
 ```bash
 make test
 ```
 Or individually:
 ```bash
-make test-backend   # 55 pytest unit & integration tests
-make test-frontend  # 17 vitest application flow tests
+make test-backend   # 58 pytest unit & integration tests
+make test-frontend  # 20 vitest application flow tests
 ```
+
+---
+
+### Light Mode & Responsive Design
+- **Dark & Light Themes**: Accessible one-click theme switcher in the conversation top bar. Preference is persisted in `localStorage` (`lyftr_theme`) with system preference fallback (`prefers-color-scheme`) and zero flash of unstyled content (FOUC).
+- **Responsive Layout**: Fluid breakpoints verified from 1920px (ultrawide) down to 390px (mobile) with collapsible sliding drawers and overlay backdrops for both the session sidebar and inference telemetry inspector.
+- **Environment Auto-Loading**: Backend loads `.env` automatically via `python-dotenv` with graceful SQLite fallback for local macOS/Linux execution outside Docker.
 
 ---
 

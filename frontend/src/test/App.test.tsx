@@ -587,4 +587,55 @@ describe("LYFTR AI Frontend — Complete Application Flow", () => {
       ).toBeInTheDocument();
     });
   });
+
+  it("toggles between dark and light themes, updating localStorage and HTML class", async () => {
+    localStorage.clear();
+    render(<App />);
+
+    const themeToggle = screen.getByTestId("theme-toggle");
+    expect(themeToggle).toBeInTheDocument();
+
+    // Default or initial theme in dark mode
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+
+    // Click theme toggle to switch to light mode
+    await userEvent.click(themeToggle);
+
+    expect(document.documentElement.classList.contains("dark")).toBe(false);
+    expect(localStorage.getItem("lyftr_theme")).toBe("light");
+
+    // Click again to switch back to dark mode
+    await userEvent.click(themeToggle);
+
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    expect(localStorage.getItem("lyftr_theme")).toBe("dark");
+  });
+
+  it("displays informative key configuration status when health returns no API keys configured", async () => {
+    (client.fetchHealth as any).mockRejectedValueOnce(
+      new (client.ApiError as any)(503, "no API keys configured")
+    );
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Keys Unset/i)).toBeInTheDocument();
+    });
+  });
+
+  it("opens and closes mobile sidebar drawer", async () => {
+    render(<App />);
+
+    const menuBtn = screen.getByLabelText("Open sessions sidebar");
+    expect(menuBtn).toBeInTheDocument();
+
+    await userEvent.click(menuBtn);
+
+    // Mobile sidebar close button is rendered
+    const closeBtn = screen.getByLabelText("Close sidebar drawer");
+    expect(closeBtn).toBeInTheDocument();
+
+    await userEvent.click(closeBtn);
+    expect(screen.queryByLabelText("Close sidebar drawer")).not.toBeInTheDocument();
+  });
 });

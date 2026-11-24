@@ -22,6 +22,10 @@ export interface HealthResponse {
   status: string;
   keys_configured: number;
   cache_enabled: boolean;
+  provider?: string;
+  model?: string;
+  provider_status?: string;
+  last_inference_verified?: boolean;
 }
 
 export interface ChatRequestPayload {

@@ -43,6 +43,40 @@ class TestHealth:
         assert resp.status_code == 503
         assert "detail" in resp.json()
 
+    def test_health_provider_metadata_present(self, client):
+        """Health reports provider name, model, and inference verification status."""
+        resp = client.get("/health")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "provider" in data
+        assert "model" in data
+        assert "provider_status" in data
+        assert "last_inference_verified" in data
+        # A configured key must NOT automatically be considered verified
+        assert data["last_inference_verified"] is False
+        assert data["provider_status"] == "configured"
+
+    def test_health_updates_after_successful_inference(self, client, mock_completion):
+        """Health transitions to verified live after successful chat inference."""
+        from tests.conftest import make_mock_response
+        mock_completion.return_value = make_mock_response("LYFTR Gemini connected")
+
+        # Before inference: not verified
+        r0 = client.get("/health").json()
+        assert r0["last_inference_verified"] is False
+
+        # Execute chat inference
+        c_resp = client.post("/chat", json={
+            "session_id": "s-health-verify",
+            "message": "Reply with exactly: LYFTR Gemini connected",
+        })
+        assert c_resp.status_code == 200
+
+        # After inference: verified live
+        r1 = client.get("/health").json()
+        assert r1["last_inference_verified"] is True
+        assert r1["provider_status"] == "verified"
+
 
 # Import at module level for the test that modifies settings
 from app.config import Settings

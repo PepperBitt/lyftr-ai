@@ -39,7 +39,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   };
 
   return (
-    <div className="p-4 border-t border-[#1f2d47] bg-[#070b14]/90 flex flex-col gap-3">
+    <div className="p-4 border-t border-[#E2E8F0] dark:border-[#1f2d47] bg-[#F5F7FA]/95 dark:bg-[#070b14]/90 flex flex-col gap-3 transition-colors">
       {/* Suggested Prompts Cards */}
       {showSuggestions && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-1">
@@ -47,10 +47,10 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
             <button
               key={i}
               onClick={() => onSelectPrompt(prompt)}
-              className="text-left p-3 rounded-lg bg-[#111827] hover:bg-[#161f33] border border-[#1f2d47] hover:border-emerald-500/40 text-xs text-slate-300 hover:text-white transition-all shadow-sm"
+              className="text-left p-3 rounded-lg bg-white dark:bg-[#111827] hover:bg-slate-50 dark:hover:bg-[#161f33] border border-[#E2E8F0] dark:border-[#1f2d47] hover:border-emerald-500/40 text-xs text-[#172033] dark:text-slate-300 transition-all shadow-xs"
             >
-              <div className="font-medium text-slate-200">{prompt}</div>
-              <div className="text-[10px] text-slate-500 mt-1 font-mono">
+              <div className="font-medium text-[#172033] dark:text-slate-200">{prompt}</div>
+              <div className="text-[10px] text-[#64748B] dark:text-slate-500 mt-1 font-mono">
                 Click to send prompt
               </div>
             </button>
@@ -65,7 +65,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
             e.preventDefault();
             handleSend();
           }}
-          className="relative rounded-xl bg-[#0b1120] border border-[#1f2d47] focus-within:border-emerald-500/60 focus-within:ring-1 focus-within:ring-emerald-500/40 transition-all shadow-inner"
+          className="relative rounded-xl bg-white dark:bg-[#0b1120] border border-[#E2E8F0] dark:border-[#1f2d47] focus-within:border-emerald-500/60 focus-within:ring-1 focus-within:ring-emerald-500/40 transition-all shadow-xs"
         >
           <ComposerPrimitive.Input asChild>
             <textarea
@@ -76,7 +76,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
               placeholder="Ask a question or enter inference query (Enter to send, Shift+Enter for newline)..."
               disabled={isLoading}
               rows={2}
-              className="w-full bg-transparent text-slate-100 placeholder-slate-500 p-3 pr-14 text-sm focus:outline-none resize-none disabled:opacity-50"
+              className="w-full bg-transparent text-[#172033] dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 p-3 pr-14 text-sm focus:outline-none resize-none disabled:opacity-50"
             />
           </ComposerPrimitive.Input>
 
@@ -84,7 +84,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
             data-testid="send-button"
             type="submit"
             disabled={!input.trim() || isLoading}
-            className="absolute right-2.5 bottom-2.5 w-9 h-9 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-[#1f2d47] disabled:text-slate-600 text-white flex items-center justify-center transition-all shadow-md active:scale-95"
+            className="absolute right-2.5 bottom-2.5 w-9 h-9 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-200 dark:disabled:bg-[#1f2d47] disabled:text-slate-400 dark:disabled:text-slate-600 text-white flex items-center justify-center transition-all shadow-md shadow-emerald-700/20 active:scale-95"
             title="Send message"
           >
             {isLoading ? (
@@ -96,7 +96,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
         </form>
       </ComposerPrimitive.Root>
 
-      <div className="flex items-center justify-between text-[11px] font-mono text-slate-500 px-1">
+      <div className="flex items-center justify-between text-[11px] font-mono text-[#64748B] dark:text-slate-500 px-1">
         <span>Non-streaming REST Gateway • Exact-match LiteLLM Cache</span>
         <span>Enter ↵ send • Shift+Enter ↵ new line</span>
       </div>

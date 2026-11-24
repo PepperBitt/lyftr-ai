@@ -11,7 +11,7 @@ class Settings:
 
     # LLM configuration
     llm_api_keys: List[str] = field(default_factory=list)
-    llm_model: str = "gemini/gemini-2.0-flash"
+    llm_model: str = "gemini/gemini-3.5-flash-lite"
     llm_timeout_seconds: int = 60
 
     # Database
@@ -39,7 +39,17 @@ class Settings:
 
 
 def load_settings() -> Settings:
-    """Load settings from environment variables."""
+    """Load settings from environment variables and .env file if available."""
+    try:
+        from dotenv import load_dotenv
+        # Check standard locations for .env
+        for env_path in [".env", "../.env", "../../.env"]:
+            if os.path.exists(env_path):
+                load_dotenv(env_path, override=False)
+                break
+    except Exception:
+        pass
+
     raw_keys = os.environ.get("LLM_API_KEYS", "")
     keys = [k.strip() for k in raw_keys.split(",") if k.strip()] if raw_keys else []
 
@@ -48,7 +58,7 @@ def load_settings() -> Settings:
 
     return Settings(
         llm_api_keys=keys,
-        llm_model=os.environ.get("LLM_MODEL", "gemini/gemini-2.0-flash"),
+        llm_model=os.environ.get("LLM_MODEL", "gemini/gemini-3.5-flash-lite"),
         llm_timeout_seconds=int(os.environ.get("LLM_TIMEOUT_SECONDS", "60")),
         database_url=os.environ.get("DATABASE_URL", "sqlite:////data/app.db"),
         allowed_origins=origins,

@@ -48,10 +48,17 @@ async def health(request: Request):
             detail="no API keys configured",
         )
 
+    last_inference_verified = getattr(app.state, "last_inference_verified", False)
+    provider_status = getattr(app.state, "provider_status", "configured")
+
     return HealthResponse(
         status="ok",
         keys_configured=settings.key_count,
         cache_enabled=llm.cache_enabled,
+        provider="gemini" if "gemini" in settings.llm_model.lower() else "llm_gateway",
+        model=settings.llm_model,
+        provider_status=provider_status,
+        last_inference_verified=last_inference_verified,
     )
 
 
@@ -82,9 +89,14 @@ async def chat(
             system_prompt=body.system_prompt,
             simulation=simulation,
         )
+        if response.metadata.resolution_source == "LIVE_INFERENCE":
+            app.state.last_inference_verified = True
+            app.state.provider_status = "verified"
         return response
 
-    except AllProvidersUnavailable:
+    except AllProvidersUnavailable as e:
+        logger.warning(f"All providers unavailable: {e}")
+        app.state.provider_status = "unavailable"
         raise HTTPException(
             status_code=503,
             detail="all providers unavailable",
@@ -93,6 +105,7 @@ async def chat(
         raise
     except Exception as e:
         logger.error(f"Chat error: {type(e).__name__}: {e}")
+        app.state.provider_status = "error"
         raise HTTPException(
             status_code=500,
             detail="internal server error",
