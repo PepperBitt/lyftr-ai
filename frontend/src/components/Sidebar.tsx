@@ -65,7 +65,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="font-bold text-base tracking-wide text-white flex items-center gap-2">
               LYFTR AI
               <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                PROD
+                GATEWAY
               </span>
             </div>
             <div className="text-xs text-slate-400 font-mono">
@@ -76,9 +76,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Workspace Pill */}
         <div className="mt-2 px-2.5 py-1.5 rounded-md bg-[#161f33] border border-[#1f2d47] flex items-center justify-between text-xs">
-          <span className="text-slate-400">Cluster:</span>
+          <span className="text-slate-400">Workspace:</span>
           <span className="font-mono text-emerald-400 font-medium">
-            us-east-prod-1
+            default
           </span>
         </div>
       </div>

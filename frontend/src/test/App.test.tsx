@@ -382,4 +382,209 @@ describe("LYFTR AI Frontend — Complete Application Flow", () => {
       expect(screen.getByText("Reply from second session")).toBeInTheDocument();
     });
   });
+
+  it("persists system prompt per session and restores it upon switching", async () => {
+    localStorage.clear();
+    render(<App />);
+
+    // Session 1: customize system prompt
+    await userEvent.click(screen.getByText("System Prompt"));
+    const input1 = screen.getByTestId("system-prompt-input");
+    await userEvent.clear(input1);
+    await userEvent.type(input1, "You are a Python security specialist.");
+    await userEvent.click(screen.getByText("Save Prompt"));
+
+    // Verify modal closed
+    expect(screen.queryByTestId("system-prompt-input")).not.toBeInTheDocument();
+
+    // Create a new session (Session 2)
+    await userEvent.click(screen.getByText("New Session"));
+
+    // Check system prompt in Session 2 -> must be default, not leaked from Session 1
+    await userEvent.click(screen.getByText("System Prompt"));
+    const input2 = screen.getByTestId("system-prompt-input");
+    expect(input2).toHaveValue("You are a helpful AI assistant.");
+
+    // Customize Session 2 prompt
+    await userEvent.clear(input2);
+    await userEvent.type(input2, "You are a database architect.");
+    await userEvent.click(screen.getByText("Save Prompt"));
+
+    // Switch back to Session 1 via sidebar
+    const savedSessions = screen.getAllByRole("button").filter(
+      (btn) => btn.textContent && /^s-[a-z0-9]+$/.test(btn.textContent.trim())
+    );
+    // Click the older session
+    if (savedSessions.length > 1) {
+      await userEvent.click(savedSessions[1]);
+      // Verify Session 1 system prompt is restored
+      await userEvent.click(screen.getByText("System Prompt"));
+      expect(screen.getByTestId("system-prompt-input")).toHaveValue(
+        "You are a Python security specialist."
+      );
+      await userEvent.click(screen.getByText("Cancel"));
+    }
+  });
+
+  it("resets custom system prompt back to default and passes default prompt to backend", async () => {
+    localStorage.clear();
+    render(<App />);
+
+    // Set custom prompt first
+    await userEvent.click(screen.getByText("System Prompt"));
+    const sysInput = screen.getByTestId("system-prompt-input");
+    await userEvent.clear(sysInput);
+    await userEvent.type(sysInput, "Temporary specialized prompt");
+    await userEvent.click(screen.getByText("Save Prompt"));
+
+    // Now open again and click Reset to Default
+    await userEvent.click(screen.getByText("System Prompt"));
+    await userEvent.click(screen.getByText("Reset to Default"));
+    expect(screen.getByTestId("system-prompt-input")).toHaveValue(
+      "You are a helpful AI assistant."
+    );
+    await userEvent.click(screen.getByText("Save Prompt"));
+
+    // Mock inference call
+    (client.sendChatMessage as any).mockResolvedValueOnce({
+      session_id: "s-reset-test",
+      reply: "Default prompt acknowledged",
+      metadata: {
+        resolution_source: "LIVE_INFERENCE",
+        model: "gemini/gemini-2.0-flash",
+        latency_ms: 400,
+        input_tokens: 15,
+        output_tokens: 10,
+        key_id: "key_1",
+        fallback_attempts: 0,
+      },
+    });
+
+    // Send a message
+    const chatInput = screen.getByTestId("chat-input");
+    await userEvent.type(chatInput, "Hello with reset prompt");
+    await userEvent.click(screen.getByTestId("send-button"));
+
+    // Verify system_prompt sent to backend is the default prompt, not the old custom prompt
+    expect(client.sendChatMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        system_prompt: "You are a helpful AI assistant.",
+      }),
+      null
+    );
+  });
+
+  it("handles session switching during pending inference without cross-session pollution", async () => {
+    localStorage.clear();
+
+    let resolveInferenceA: any;
+    const pendingPromiseA = new Promise((resolve) => {
+      resolveInferenceA = resolve;
+    });
+
+    (client.sendChatMessage as any).mockReturnValueOnce(pendingPromiseA);
+
+    render(<App />);
+
+    const sessionAId = screen.getByTestId("session-id-display").textContent;
+
+    // Send message in Session A
+    const chatInput = screen.getByTestId("chat-input");
+    await userEvent.type(chatInput, "Pending message in Session A");
+    await userEvent.click(screen.getByTestId("send-button"));
+
+    // Session A is loading
+    expect(
+      screen.getByText("Processing inference across provider key pool...")
+    ).toBeInTheDocument();
+
+    // While Session A is in-flight, user switches to a brand new session
+    await userEvent.click(screen.getByText("New Session"));
+
+    const sessionBId = screen.getByTestId("session-id-display").textContent;
+    expect(sessionBId).not.toBe(sessionAId);
+
+    // Session B must NOT show Session A's message or loading spinner
+    expect(screen.queryByText("Pending message in Session A")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Processing inference across provider key pool...")
+    ).not.toBeInTheDocument();
+
+    // Now resolve Session A's inference
+    resolveInferenceA({
+      session_id: sessionAId,
+      reply: "Late response belonging to Session A",
+      metadata: {
+        resolution_source: "LIVE_INFERENCE",
+        model: "gemini/gemini-2.0-flash",
+        latency_ms: 900,
+        input_tokens: 25,
+        output_tokens: 15,
+        key_id: "key_1",
+        fallback_attempts: 0,
+      },
+    });
+
+    // Wait microtask tick
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Session B must STILL NOT contain Session A's response
+    expect(
+      screen.queryByText("Late response belonging to Session A")
+    ).not.toBeInTheDocument();
+
+    // Switch back to Session A via sidebar
+    const sessionABtn = screen.getByText(sessionAId!);
+    await userEvent.click(sessionABtn);
+
+    // Now Session A displays its message and newly received response
+    await waitFor(() => {
+      expect(screen.getByText("Pending message in Session A")).toBeInTheDocument();
+      expect(screen.getByText("Late response belonging to Session A")).toBeInTheDocument();
+    });
+  });
+
+  it("handles error in pending session without polluting switched active session", async () => {
+    localStorage.clear();
+
+    let rejectInferenceA: any;
+    const pendingPromiseA = new Promise((_, reject) => {
+      rejectInferenceA = reject;
+    });
+
+    (client.sendChatMessage as any).mockReturnValueOnce(pendingPromiseA);
+
+    render(<App />);
+
+    const sessionAId = screen.getByTestId("session-id-display").textContent;
+
+    // Send message in Session A
+    const chatInput = screen.getByTestId("chat-input");
+    await userEvent.type(chatInput, "Will fail in Session A");
+    await userEvent.click(screen.getByTestId("send-button"));
+
+    // Switch to new session before failure occurs
+    await userEvent.click(screen.getByText("New Session"));
+
+    // Reject Session A's request with 503 error
+    rejectInferenceA(new (client.ApiError as any)(503, "all providers unavailable"));
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Active session (Session B) must NOT show Session A's error banner
+    expect(
+      screen.queryByText(/Inference failed: all providers unavailable/i)
+    ).not.toBeInTheDocument();
+
+    // Switch back to Session A
+    const sessionABtn = screen.getByText(sessionAId!);
+    await userEvent.click(sessionABtn);
+
+    // Session A displays its error
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Inference failed: all providers unavailable/i)
+      ).toBeInTheDocument();
+    });
+  });
 });

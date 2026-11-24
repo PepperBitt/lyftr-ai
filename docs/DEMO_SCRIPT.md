@@ -38,5 +38,5 @@ Spoken walkthrough script for recording the video submission.
 ---
 
 ### 2:25 – 2:45 | Docker & Code Quality Wrap-up
-**Visual**: Switch briefly to terminal showing `make test` running with all 68 tests passing.
-> *"The entire application runs locally with `make up` using multi-stage Dockerfiles and persistent named volumes. All 68 backend and frontend automated tests pass with 100% success. Thank you!"*
+**Visual**: Switch briefly to terminal showing `make test` running with all 72 tests passing.
+> *"The entire application runs locally with `make up` using multi-stage Dockerfiles and persistent named volumes. All 72 backend and frontend automated tests pass with 100% success. Thank you!"*

@@ -6,14 +6,14 @@ Production-grade Full-Stack LLM Inference Gateway with automatic provider key fa
 
 ## 1. Live URLs
 
-| Service | URL | Status | Description |
+| Service | Target Platform | Status | Description |
 | :--- | :--- | :--- | :--- |
-| **Frontend Application** | `https://lyftr-ai.vercel.app` *(Placeholder - Ready to Deploy)* | `Deployment Ready` | React 19 + Tailwind UI |
-| **Backend API Gateway** | `https://lyftr-api.onrender.com` *(Placeholder - Ready to Deploy)* | `Deployment Ready` | FastAPI + LiteLLM Service |
-| **Public GitHub Repository** | `https://github.com/your-username/lyftr-ai` *(Replace with repo URL)* | `Verified` | Full Monorepo |
-| **Demo Video Walkthrough** | `https://youtu.be/placeholder-demo` *(2-3 min recording link)* | `Pending Recording` | Spoken demonstration |
+| **Frontend Application** | Vercel (Edge CDN) | `Pending Deployment` | Production SPA built and tested (`dist/`); ready to connect to live backend |
+| **Backend API Gateway** | Render / Railway (Docker) | `Pending Deployment` | Dockerized FastAPI service with SQLite persistent volume; awaits API keys |
+| **Public GitHub Repository** | GitHub | `Pending Remote Push` | Complete monorepo with full commit history and passing test suites |
+| **Demo Video Walkthrough** | YouTube / Loom | `Pending Recording` | Spoken demonstration script prepared in [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) |
 
-> **Note on Deployment Readiness**: The entire stack is completely pre-configured for instant zero-code public deployment on **Vercel** (frontend) and **Render / Railway** (backend with persistent `/data` volume). See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for step-by-step instructions. Real API keys are not bundled in code or configuration and should be supplied in production environment variables.
+> **Deployment Readiness**: The stack is pre-configured for zero-code deployment to Vercel and Render/Railway. For deployment procedures and environment variable instructions, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). Real API credentials must be supplied via hosting environment variables prior to live inference.
 
 ---
 
@@ -26,15 +26,15 @@ Production-grade Full-Stack LLM Inference Gateway with automatic provider key fa
 
 ### Clone & Configure
 ```bash
-git clone https://github.com/your-username/lyftr-ai.git
+git clone <repository-url>
 cd lyftr-ai
 cp .env.example .env
 ```
 Edit `.env` to supply at least two provider keys:
 ```env
-LLM_API_KEYS=sk-proj-primary-key-1,sk-proj-secondary-key-2
+LLM_API_KEYS=your_first_provider_key,your_second_provider_key
 LLM_MODEL=gemini/gemini-2.0-flash
-ENABLE_FAILURE_SIMULATION=true
+ENABLE_FAILURE_SIMULATION=false
 ```
 
 ---
@@ -95,14 +95,14 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 ---
 
 ### Running Automated Tests
-Run both backend and frontend test suites (68 tests):
+Run both backend and frontend test suites (72 tests):
 ```bash
 make test
 ```
 Or individually:
 ```bash
 make test-backend   # 55 pytest unit & integration tests
-make test-frontend  # 13 vitest application flow tests
+make test-frontend  # 17 vitest application flow tests
 ```
 
 ---

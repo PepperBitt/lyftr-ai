@@ -27,9 +27,9 @@ Instructions for deploying the LYFTR AI full-stack application to public cloud h
    ```env
    PORT=8000
    DATABASE_URL=sqlite:////data/app.db
-   ALLOWED_ORIGINS=https://your-frontend-domain.vercel.app
-   ENABLE_FAILURE_SIMULATION=true
-   LLM_API_KEYS=sk-real-key-1,sk-real-key-2
+   ALLOWED_ORIGINS=https://<your-frontend-domain>.vercel.app
+   ENABLE_FAILURE_SIMULATION=false
+   LLM_API_KEYS=<your-provider-key-1>,<your-provider-key-2>
    LLM_MODEL=gemini/gemini-2.0-flash
    DEFAULT_SYSTEM_PROMPT=You are a helpful AI assistant.
    LLM_TIMEOUT_SECONDS=60
@@ -37,7 +37,7 @@ Instructions for deploying the LYFTR AI full-stack application to public cloud h
 7. Click **Deploy Web Service**.
 8. Verify health endpoint:
    ```bash
-   curl -s https://your-backend-app.onrender.com/health
+   curl -s https://<your-backend-app>.onrender.com/health
    ```
 
 ---
@@ -51,13 +51,13 @@ Instructions for deploying the LYFTR AI full-stack application to public cloud h
 4. Configure Build Settings:
    - **Build Command**: `npm run build`
    - **Output Directory**: `dist`
-   - **Install Command**: `npm install`
+   - **Install Command**: `npm ci`
 5. Configure Environment Variables:
    ```env
-   VITE_API_BASE_URL=https://your-backend-app.onrender.com
+   VITE_API_BASE_URL=https://<your-backend-app>.onrender.com
    ```
 6. Click **Deploy**.
-7. Once deployed, copy your live frontend URL (e.g. `https://lyftr-ai.vercel.app`) and add it to `ALLOWED_ORIGINS` in your backend configuration.
+7. Once deployed, copy your live frontend URL (e.g. `https://<your-frontend-app>.vercel.app`) and add it to `ALLOWED_ORIGINS` in your backend configuration.
 
 ---
 
@@ -65,14 +65,14 @@ Instructions for deploying the LYFTR AI full-stack application to public cloud h
 
 1. **Verify Backend Health**:
    ```bash
-   curl -s https://your-backend-app.onrender.com/health
+   curl -s https://<your-backend-app>.onrender.com/health
    # Must return {"status": "ok", "keys_configured": 2, "cache_enabled": true}
    ```
 2. **Verify CORS**:
    Open browser DevTools on your live frontend URL and ensure no CORS policy errors occur when communicating with the backend API.
-3. **Verify Failover Test Hook**:
+3. **Verify Failover Test Hook** (if `ENABLE_FAILURE_SIMULATION=true` is enabled):
    ```bash
-   curl -s -X POST https://your-backend-app.onrender.com/chat \
+   curl -s -X POST https://<your-backend-app>.onrender.com/chat \
      -H "Content-Type: application/json" \
      -H "X-Simulate-Failure: key_1=429" \
      -d '{"session_id": "s-prod-test", "message": "Verify failover"}'

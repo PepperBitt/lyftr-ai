@@ -31,22 +31,33 @@ import { generateSessionId } from "./lib/utils";
 import {
   getActiveSessionId,
   getSavedSessions,
+  getSessionSystemPrompt,
   removeSavedSession,
   setActiveSessionId,
+  setSessionSystemPrompt,
+  DEFAULT_SYSTEM_PROMPT,
 } from "./lib/sessionStorage";
-
-const DEFAULT_SYSTEM_PROMPT = "You are a helpful AI assistant.";
 
 export const App: React.FC = () => {
   // Session persistence: restore active session ID from localStorage on page refresh
   const [sessionId, setSessionId] = useState<string>(() => getActiveSessionId());
   const [savedSessions, setSavedSessions] = useState<string[]>(() => getSavedSessions());
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [errorBanner, setErrorBanner] = useState<string | null>(null);
 
-  // System prompt
-  const [systemPrompt, setSystemPrompt] = useState<string>(DEFAULT_SYSTEM_PROMPT);
+  // Per-session isolated state to prevent cross-session contamination and handle concurrent requests
+  const [sessionMessages, setSessionMessages] = useState<Record<string, ChatMessage[]>>({});
+  const [sessionLoading, setSessionLoading] = useState<Record<string, boolean>>({});
+  const [sessionErrors, setSessionErrors] = useState<Record<string, string | null>>({});
+  const [sessionMetadata, setSessionMetadata] = useState<Record<string, MessageMetadata | null>>({});
+  const [sessionPrompts, setSessionPrompts] = useState<Record<string, string>>({});
+
+  // Active session derived properties
+  const messages = sessionMessages[sessionId] || [];
+  const isLoading = Boolean(sessionLoading[sessionId]);
+  const errorBanner = sessionErrors[sessionId] || null;
+  const latestMetadata = sessionMetadata[sessionId] || null;
+  const currentSystemPrompt = sessionPrompts[sessionId] ?? getSessionSystemPrompt(sessionId);
+
+  // System prompt modal
   const [isSystemPromptOpen, setIsSystemPromptOpen] = useState<boolean>(false);
 
   // Resilience Lab & Simulation
@@ -57,8 +68,15 @@ export const App: React.FC = () => {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [healthLoading, setHealthLoading] = useState<boolean>(true);
 
-  // Inspector & Telemetry
-  const [latestMetadata, setLatestMetadata] = useState<MessageMetadata | null>(null);
+  // Stable references for in-flight requests during concurrent session switches
+  const activeSessionIdRef = useRef(sessionId);
+  activeSessionIdRef.current = sessionId;
+
+  const sessionPromptsRef = useRef(sessionPrompts);
+  sessionPromptsRef.current = sessionPrompts;
+
+  const activeSimulationRef = useRef(activeSimulation);
+  activeSimulationRef.current = activeSimulation;
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -97,35 +115,55 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  // Restore conversation history for the active session on page refresh or session switch
+  // Restore conversation history and session-specific system prompt on session switch or refresh
   useEffect(() => {
     let isMounted = true;
     const restoreSession = async () => {
-      try {
-        const historyData = await fetchSessionHistory(sessionId);
-        if (isMounted && historyData && Array.isArray(historyData.messages)) {
-          const loaded: ChatMessage[] = historyData.messages.map((m, idx) => ({
-            id: `restored-${sessionId}-${idx}`,
-            role: m.role as "user" | "assistant",
-            content: m.content,
-            metadata: m.metadata as MessageMetadata | undefined,
-            createdAt: new Date().toISOString(),
-          }));
-          setMessages(loaded);
+      // Ensure system prompt for this session is loaded
+      const promptForSession = getSessionSystemPrompt(sessionId);
+      if (isMounted) {
+        setSessionPrompts((prev) => ({
+          ...prev,
+          [sessionId]: prev[sessionId] ?? promptForSession,
+        }));
+      }
 
-          // Update latest metadata to the last assistant message
-          const lastAsst = [...loaded].reverse().find(
-            (m) => m.role === "assistant" && m.metadata
-          );
-          if (lastAsst?.metadata) {
-            setLatestMetadata(lastAsst.metadata);
+      // Fetch message history from SQLite if not already loaded in memory
+      if (!sessionMessages[sessionId]) {
+        try {
+          const historyData = await fetchSessionHistory(sessionId);
+          if (isMounted && historyData && Array.isArray(historyData.messages)) {
+            const loaded: ChatMessage[] = historyData.messages.map((m, idx) => ({
+              id: `restored-${sessionId}-${idx}`,
+              role: m.role as "user" | "assistant",
+              content: m.content,
+              metadata: m.metadata as MessageMetadata | undefined,
+              createdAt: new Date().toISOString(),
+            }));
+
+            setSessionMessages((prev) => ({
+              ...prev,
+              [sessionId]: loaded,
+            }));
+
+            // Restore metadata from the last assistant response
+            const lastAsst = [...loaded].reverse().find(
+              (m) => m.role === "assistant" && m.metadata
+            );
+            if (lastAsst?.metadata) {
+              setSessionMetadata((prev) => ({
+                ...prev,
+                [sessionId]: lastAsst.metadata ?? null,
+              }));
+            }
           }
-        }
-      } catch (err) {
-        // Unknown session (404) or network issue -> start with empty messages
-        if (isMounted) {
-          setMessages([]);
-          setLatestMetadata(null);
+        } catch {
+          if (isMounted) {
+            setSessionMessages((prev) => ({
+              ...prev,
+              [sessionId]: prev[sessionId] || [],
+            }));
+          }
         }
       }
     };
@@ -136,108 +174,179 @@ export const App: React.FC = () => {
     };
   }, [sessionId]);
 
-  // Create a new session
+  // Create a clean new session
   const handleNewSession = () => {
     const newId = generateSessionId();
     setActiveSessionId(newId);
     setSessionId(newId);
+    activeSessionIdRef.current = newId;
     setSavedSessions(getSavedSessions());
-    setMessages([]);
-    setLatestMetadata(null);
-    setErrorBanner(null);
+    setSessionMessages((prev) => ({ ...prev, [newId]: [] }));
+    setSessionMetadata((prev) => ({ ...prev, [newId]: null }));
+    setSessionErrors((prev) => ({ ...prev, [newId]: null }));
+    setSessionLoading((prev) => ({ ...prev, [newId]: false }));
+    setSessionPrompts((prev) => ({ ...prev, [newId]: DEFAULT_SYSTEM_PROMPT }));
   };
 
-  // Switch to a previously saved session
+  // Switch to a saved session
   const handleSelectSession = (targetId: string) => {
     if (targetId === sessionId) return;
     setActiveSessionId(targetId);
     setSessionId(targetId);
+    activeSessionIdRef.current = targetId;
     setSavedSessions(getSavedSessions());
-    setErrorBanner(null);
   };
 
-  // Delete a saved session from the local list
+  // Delete a saved session
   const handleDeleteSession = (targetId: string) => {
     const remaining = removeSavedSession(targetId);
     setSavedSessions(remaining);
+    setSessionMessages((prev) => {
+      const copy = { ...prev };
+      delete copy[targetId];
+      return copy;
+    });
+    setSessionPrompts((prev) => {
+      const copy = { ...prev };
+      delete copy[targetId];
+      return copy;
+    });
     if (targetId === sessionId) {
       handleNewSession();
     }
   };
 
-  // Send message
-  const handleSendMessage = async (userText: string) => {
-    if (!userText.trim() || isLoading) return;
-
-    setErrorBanner(null);
-
-    // Append user message in memory
-    const userMsg: ChatMessage = {
-      id: `usr-${Date.now()}`,
-      role: "user",
-      content: userText,
-      createdAt: new Date().toISOString(),
-    };
-
-    setMessages((prev) => [...prev, userMsg]);
-    setIsLoading(true);
-
-    const simulationToUse = activeSimulation;
-    // Simulation is request-scoped; clear after arming this request
-    if (activeSimulation) {
-      setActiveSimulation(null);
-    }
-
-    try {
-      const response = await sendChatMessage(
-        {
-          session_id: sessionId,
-          message: userText,
-          system_prompt: systemPrompt !== DEFAULT_SYSTEM_PROMPT ? systemPrompt : undefined,
-        },
-        simulationToUse,
-      );
-
-      const assistantMsg: ChatMessage = {
-        id: `asst-${Date.now()}`,
-        role: "assistant",
-        content: response.reply,
-        metadata: response.metadata,
-        createdAt: new Date().toISOString(),
-      };
-
-      setMessages((prev) => [...prev, assistantMsg]);
-      setLatestMetadata(response.metadata);
-    } catch (err: any) {
-      const errorText = err.detail || err.message || "Failed to complete inference request";
-      setErrorBanner(errorText);
-
-      // Append readable error message in chat area
-      const errorMsg: ChatMessage = {
-        id: `err-${Date.now()}`,
-        role: "error",
-        content: `Inference failed: ${errorText}`,
-        createdAt: new Date().toISOString(),
-      };
-      setMessages((prev) => [...prev, errorMsg]);
-    } finally {
-      setIsLoading(false);
-    }
+  // Save or reset session-specific system prompt
+  const handleSaveSystemPrompt = (newPrompt: string) => {
+    const trimmed = newPrompt.trim() || DEFAULT_SYSTEM_PROMPT;
+    setSessionPrompts((prev) => ({ ...prev, [sessionId]: trimmed }));
+    setSessionSystemPrompt(sessionId, trimmed);
+    setIsSystemPromptOpen(false);
   };
 
-  // Initialize assistant-ui LocalRuntime with a custom ChatModelAdapter
+  // Assistant-UI ChatModelAdapter properly connected to the FastAPI REST API
   const chatModelAdapter: ChatModelAdapter = useMemo(
     () => ({
-      async run() {
-        return {
-          content: [{ type: "text", text: "" }],
-        };
+      async run({ messages: adapterMessages }) {
+        const targetSessionId = activeSessionIdRef.current;
+        const lastMsg = adapterMessages[adapterMessages.length - 1];
+        let textContent = "";
+        if (typeof lastMsg?.content === "string") {
+          textContent = lastMsg.content;
+        } else if (Array.isArray(lastMsg?.content)) {
+          textContent = lastMsg.content
+            .map((c: any) => c.text || (c.type === "text" ? c.text : ""))
+            .join("");
+        }
+
+        const promptToUse =
+          sessionPromptsRef.current[targetSessionId] ?? getSessionSystemPrompt(targetSessionId);
+        const simulationToUse = activeSimulationRef.current;
+        if (activeSimulationRef.current) {
+          setActiveSimulation(null);
+        }
+
+        try {
+          const res = await sendChatMessage(
+            {
+              session_id: targetSessionId,
+              message: textContent || "Hello",
+              system_prompt: promptToUse,
+            },
+            simulationToUse
+          );
+
+          // Update telemetry and metadata for the specific target session
+          setSessionMetadata((prev) => ({
+            ...prev,
+            [targetSessionId]: res.metadata,
+          }));
+
+          const asstMsg: ChatMessage = {
+            id: `asst-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            role: "assistant",
+            content: res.reply,
+            metadata: res.metadata,
+            createdAt: new Date().toISOString(),
+          };
+
+          // Store response strictly in targetSessionId's history (prevents cross-session leaks)
+          setSessionMessages((prev) => ({
+            ...prev,
+            [targetSessionId]: [...(prev[targetSessionId] || []), asstMsg],
+          }));
+
+          return {
+            content: [{ type: "text", text: res.reply }],
+            metadata: {
+              custom: res.metadata as unknown as Record<string, unknown>,
+            },
+          };
+        } catch (err: any) {
+          const errorText = err.detail || err.message || "Failed to complete inference request";
+          setSessionErrors((prev) => ({
+            ...prev,
+            [targetSessionId]: errorText,
+          }));
+
+          const errorMsg: ChatMessage = {
+            id: `err-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            role: "error",
+            content: `Inference failed: ${errorText}`,
+            createdAt: new Date().toISOString(),
+          };
+
+          setSessionMessages((prev) => ({
+            ...prev,
+            [targetSessionId]: [...(prev[targetSessionId] || []), errorMsg],
+          }));
+
+          throw err;
+        } finally {
+          setSessionLoading((prev) => ({
+            ...prev,
+            [targetSessionId]: false,
+          }));
+        }
       },
     }),
     []
   );
 
   const runtime = useLocalRuntime(chatModelAdapter);
+
+  // Send message delegates to assistant-ui ChatModelAdapter
+  const handleSendMessage = async (userText: string) => {
+    if (!userText.trim() || isLoading) return;
+    const targetSessionId = sessionId;
+    activeSessionIdRef.current = targetSessionId;
+
+    const userMsg: ChatMessage = {
+      id: `usr-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      role: "user",
+      content: userText,
+      createdAt: new Date().toISOString(),
+    };
+
+    setSessionMessages((prev) => ({
+      ...prev,
+      [targetSessionId]: [...(prev[targetSessionId] || []), userMsg],
+    }));
+    setSessionLoading((prev) => ({ ...prev, [targetSessionId]: true }));
+    setSessionErrors((prev) => ({ ...prev, [targetSessionId]: null }));
+
+    try {
+      await chatModelAdapter.run({
+        messages: [{ role: "user", content: userText } as any],
+        abortSignal: new AbortController().signal,
+        runConfig: {} as any,
+        context: {} as any,
+        unstable_getMessage: () => ({ role: "user", content: userText } as any),
+      });
+    } catch {
+      // Errors handled within chatModelAdapter.run
+    }
+  };
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
@@ -252,7 +361,7 @@ export const App: React.FC = () => {
           health={health}
           healthLoading={healthLoading}
           onOpenSystemPrompt={() => setIsSystemPromptOpen(true)}
-          systemPrompt={systemPrompt}
+          systemPrompt={currentSystemPrompt}
           onToggleResilienceLab={() => setIsResilienceLabOpen((prev) => !prev)}
           isResilienceLabOpen={isResilienceLabOpen}
           activeSimulation={activeSimulation}
@@ -292,6 +401,22 @@ export const App: React.FC = () => {
               <span>SQLite Active</span>
             </div>
           </div>
+
+          {/* Error Banner */}
+          {errorBanner && (
+            <div className="px-6 py-2.5 bg-rose-500/15 border-b border-rose-500/30 text-rose-300 text-xs font-mono flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-400" />
+                <span>{errorBanner}</span>
+              </div>
+              <button
+                onClick={() => setSessionErrors((prev) => ({ ...prev, [sessionId]: null }))}
+                className="text-xs text-rose-300 hover:text-white"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
 
           {/* Message Feed with assistant-ui ThreadPrimitive.Viewport */}
           <ThreadPrimitive.Viewport className="flex-1 overflow-y-auto p-6 flex flex-col">
@@ -353,18 +478,15 @@ export const App: React.FC = () => {
         <SystemPromptModal
           isOpen={isSystemPromptOpen}
           onClose={() => setIsSystemPromptOpen(false)}
-          systemPrompt={systemPrompt}
-          onSavePrompt={(p) => setSystemPrompt(p)}
+          systemPrompt={currentSystemPrompt}
+          onSavePrompt={handleSaveSystemPrompt}
         />
 
         <ResilienceLab
           isOpen={isResilienceLabOpen}
           onClose={() => setIsResilienceLabOpen(false)}
           activeSimulation={activeSimulation}
-          onSelectSimulation={(header) => {
-            setActiveSimulation(header);
-            if (header) setIsResilienceLabOpen(false);
-          }}
+          onSelectSimulation={(sim) => setActiveSimulation(sim)}
         />
       </div>
     </AssistantRuntimeProvider>

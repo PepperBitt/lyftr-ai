@@ -6,9 +6,9 @@ Complete guide to running automated and manual verification tests for LYFTR AI.
 
 ## Test Execution Summary
 
-The repository contains **68 automated tests**:
+The repository contains **72 automated tests**:
 - **Backend**: 55 pytest unit & integration tests covering health, validation, multi-turn history, key failover, retryable vs non-retryable error classification, token usage estimation, caching, SQLite transactions, and error safety.
-- **Frontend**: 13 vitest application flow tests verifying component rendering, data-testid attributes, session navigation, refresh restoration, user interactions, loading states, error boundaries, and failover header generation.
+- **Frontend**: 17 vitest application flow tests verifying component rendering, data-testid attributes, session navigation, refresh restoration, per-session system prompt persistence, resetting prompts to default, concurrent session switching during pending inference, and failover header generation.
 
 ---
 
@@ -52,7 +52,7 @@ npm test
 | **Response Cache** | `tests/test_caching.py` | 8 | First live, second hit `LLM_CACHE`, key_id null on hit, token counts preserved, simulation bypasses cache |
 | **SQLite DB** | `tests/test_database.py` | 6 | Automatic file & schema creation, WAL mode, transaction integrity, session prompt storage |
 | **Error Safety** | `tests/test_errors.py` | 4 | No stack traces exposed, clean JSON `detail`, docs endpoints disabled |
-| **Frontend UI** | `src/test/App.test.tsx` | 10 | Exact `data-testid` attributes, send & clear, multi-turn display, 503 error banner, Resilience Lab header, session restore, session navigation |
+| **Frontend UI** | `src/test/App.test.tsx` | 14 | Exact `data-testid` attributes, send & clear, multi-turn display, 503 error banner, Resilience Lab header, session restore, session navigation, per-session system prompt persistence & reset, concurrent in-flight session switching |
 | **Message Item** | `src/test/MessageItem.test.tsx`| 3 | Per-response metadata badges, markdown rendering, copy button |
 
 ---

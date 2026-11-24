@@ -2,6 +2,37 @@ import { generateSessionId } from "./utils";
 
 const ACTIVE_SESSION_KEY = "lyftr_active_session_id";
 const SAVED_SESSIONS_KEY = "lyftr_saved_sessions";
+const SYSTEM_PROMPT_PREFIX = "lyftr_sysprompt_";
+
+export const DEFAULT_SYSTEM_PROMPT = "You are a helpful AI assistant.";
+
+export function getSessionSystemPrompt(sessionId: string): string {
+  try {
+    const saved = localStorage.getItem(`${SYSTEM_PROMPT_PREFIX}${sessionId}`);
+    if (saved && saved.trim()) {
+      return saved.trim();
+    }
+  } catch {
+    // localStorage may be disabled or inaccessible
+  }
+  return DEFAULT_SYSTEM_PROMPT;
+}
+
+export function setSessionSystemPrompt(sessionId: string, prompt: string): void {
+  try {
+    localStorage.setItem(`${SYSTEM_PROMPT_PREFIX}${sessionId}`, prompt.trim());
+  } catch {
+    // ignore
+  }
+}
+
+export function removeSessionSystemPrompt(sessionId: string): void {
+  try {
+    localStorage.removeItem(`${SYSTEM_PROMPT_PREFIX}${sessionId}`);
+  } catch {
+    // ignore
+  }
+}
 
 export function getActiveSessionId(): string {
   try {
@@ -58,6 +89,7 @@ export function saveSessionId(sessionId: string): string[] {
 
 export function removeSavedSession(sessionId: string): string[] {
   try {
+    removeSessionSystemPrompt(sessionId);
     const existing = getSavedSessions();
     const updated = existing.filter((id) => id !== sessionId);
     localStorage.setItem(SAVED_SESSIONS_KEY, JSON.stringify(updated));
