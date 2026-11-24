@@ -1,0 +1,130 @@
+"""Tests for key failover and failure simulation."""
+
+from tests.conftest import make_mock_response
+
+
+class TestFailover:
+    """Failover and failure simulation tests."""
+
+    def test_primary_succeeds(self, client, mock_completion):
+        """Primary key succeeds on first attempt."""
+        mock_completion.return_value = make_mock_response("Success")
+        resp = client.post("/chat", json={
+            "session_id": "s-fo-1",
+            "message": "Hello",
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["metadata"]["key_id"] == "key_1"
+        assert data["metadata"]["fallback_attempts"] == 0
+
+    def test_primary_429_secondary_succeeds(self, client, mock_completion):
+        """Primary fails with 429, secondary succeeds."""
+        mock_completion.return_value = make_mock_response("From backup")
+        resp = client.post(
+            "/chat",
+            json={"session_id": "s-fo-2", "message": "Hello"},
+            headers={"X-Simulate-Failure": "key_1=429"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["metadata"]["key_id"] == "key_2"
+        assert data["metadata"]["fallback_attempts"] == 1
+        assert data["metadata"]["resolution_source"] == "LIVE_INFERENCE"
+
+    def test_primary_500_secondary_succeeds(self, client, mock_completion):
+        """Primary fails with 500, secondary succeeds."""
+        mock_completion.return_value = make_mock_response("From backup")
+        resp = client.post(
+            "/chat",
+            json={"session_id": "s-fo-3", "message": "Hello"},
+            headers={"X-Simulate-Failure": "key_1=500"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["metadata"]["key_id"] == "key_2"
+
+    def test_all_keys_fail_returns_503(self, client, mock_completion):
+        """All keys failing returns 503."""
+        resp = client.post(
+            "/chat",
+            json={"session_id": "s-fo-4", "message": "Hello"},
+            headers={"X-Simulate-Failure": "key_1=429,key_2=500"},
+        )
+        assert resp.status_code == 503
+        assert resp.json()["detail"] == "all providers unavailable"
+
+    def test_wildcard_fails_all_keys(self, client, mock_completion):
+        """Wildcard *=429 causes all keys to fail."""
+        resp = client.post(
+            "/chat",
+            json={"session_id": "s-fo-5", "message": "Hello"},
+            headers={"X-Simulate-Failure": "*=429"},
+        )
+        assert resp.status_code == 503
+        assert resp.json()["detail"] == "all providers unavailable"
+
+    def test_correct_key_id_returned(self, client, mock_completion):
+        """Correct key_id is returned on failover."""
+        mock_completion.return_value = make_mock_response("From key 2")
+        resp = client.post(
+            "/chat",
+            json={"session_id": "s-fo-6", "message": "Hello"},
+            headers={"X-Simulate-Failure": "key_1=429"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["metadata"]["key_id"] == "key_2"
+
+    def test_correct_fallback_attempts(self, client, mock_completion):
+        """Correct fallback_attempts count on failover."""
+        mock_completion.return_value = make_mock_response("From key 2")
+        resp = client.post(
+            "/chat",
+            json={"session_id": "s-fo-7", "message": "Hello"},
+            headers={"X-Simulate-Failure": "key_1=429"},
+        )
+        assert resp.json()["metadata"]["fallback_attempts"] == 1
+
+    def test_real_inference_on_unsimulated_key(self, client, mock_completion):
+        """Real provider inference is invoked for the unsimulated key."""
+        mock_completion.return_value = make_mock_response("Real response")
+        resp = client.post(
+            "/chat",
+            json={"session_id": "s-fo-8", "message": "Hello"},
+            headers={"X-Simulate-Failure": "key_1=429"},
+        )
+        assert resp.status_code == 200
+        assert mock_completion.called
+
+    def test_simulation_is_request_scoped(self, client, mock_completion):
+        """Simulation affects only one request."""
+        # First request with simulation
+        mock_completion.return_value = make_mock_response("Fallback response")
+        resp1 = client.post(
+            "/chat",
+            json={"session_id": "s-fo-9a", "message": "Hello"},
+            headers={"X-Simulate-Failure": "key_1=429"},
+        )
+        assert resp1.status_code == 200
+        assert resp1.json()["metadata"]["key_id"] == "key_2"
+
+        # Second request without simulation should use key_1
+        mock_completion.return_value = make_mock_response("Normal response")
+        resp2 = client.post(
+            "/chat",
+            json={"session_id": "s-fo-9b", "message": "Hello again"},
+        )
+        assert resp2.status_code == 200
+        assert resp2.json()["metadata"]["key_id"] == "key_1"
+
+    def test_failed_requests_not_stored(self, client, mock_completion):
+        """Failed requests are not persisted in history."""
+        resp = client.post(
+            "/chat",
+            json={"session_id": "s-fo-10", "message": "Hello"},
+            headers={"X-Simulate-Failure": "*=429"},
+        )
+        assert resp.status_code == 503
+
+        hist = client.get("/sessions/s-fo-10/messages")
+        assert hist.status_code == 404
