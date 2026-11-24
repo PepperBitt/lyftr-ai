@@ -43,6 +43,9 @@ dist/
 dist-ssr/
 *.local
 
+# Submission Archives
+*.zip
+
 # Environment & Secrets (NEVER COMMIT SENSITIVE DATA)
 .env
 .env.*
